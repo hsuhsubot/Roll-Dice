@@ -237,7 +237,7 @@ app.get('/api/admin/transactions', verifyAdmin, async (req, res) => {
   try { 
     const txs = await Transaction.aggregate([
       { $sort: { createdAt: -1 } },
-      { $limit: 100 },
+      { $limit: 10 },
       { $lookup: { from: 'users', localField: 'phone', foreignField: 'phone', as: 'userInfo' } },
       { $unwind: { path: '$userInfo', preserveNullAndEmptyArrays: true } },
       { $project: { phone: 1, type: 1, amount: 1, status: 1, createdAt: 1, method: 1, accountPhone: 1, accountName: 1, screenshot: 1, username: '$userInfo.username' } }
@@ -250,7 +250,7 @@ app.post('/api/admin/transaction/action', verifyAdmin, async (req, res) => {
   const { transactionId, action } = req.body; 
   try { 
     const tx = await Transaction.findById(transactionId); 
-    if (!tx || tx.status !== 'pending') return res.status(400).json({ error: 'Transaction handles match error' }); 
+    if (!tx || tx.status !== 'pending') return res.status(50).json({ error: 'Transaction handles match error' }); 
     
     tx.status = action === 'approve' ? 'approved' : 'rejected'; 
     await tx.save(); 
