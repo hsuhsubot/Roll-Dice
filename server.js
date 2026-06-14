@@ -29,8 +29,9 @@ mongoose.connect(process.env.MONGO_URI).then(async () => {
 }).catch(err => console.log('❌ DB Error:', err));
 
 const User = mongoose.model('User', new mongoose.Schema({ phone: { type: String, required: true, unique: true }, username: String, password: { type: String, required: true }, balance: { type: Number, default: 5000 } }));
-const BetHistory = mongoose.model('BetHistory', new mongoose.Schema({ phone: String, betType: String, amount: Number, result: String, payout: Number, createdAt: { type: Date, default: Date.now } }));
-const Transaction = mongoose.model('Transaction', new mongoose.Schema({ phone: String, type: String, amount: Number, method: String, accountPhone: String, accountName: String, screenshot: String, status: { type: String, default: 'pending' }, createdAt: { type: Date, default: Date.now } }));
+// 🚨 Index များ ထည့်သွင်းထားသော နေရာ 🚨
+const BetHistory = mongoose.model('BetHistory', new mongoose.Schema({ phone: { type: String, index: true }, betType: String, amount: Number, result: String, payout: Number, createdAt: { type: Date, default: Date.now, index: true } }));
+const Transaction = mongoose.model('Transaction', new mongoose.Schema({ phone: { type: String, index: true }, type: String, amount: Number, method: String, accountPhone: String, accountName: String, screenshot: String, status: { type: String, default: 'pending', index: true }, createdAt: { type: Date, default: Date.now, index: true } }));
 const Admin = mongoose.model('Admin', new mongoose.Schema({ username: { type: String, required: true, unique: true }, password: { type: String, required: true }, role: { type: String, enum: ['superadmin', 'subadmin'], default: 'subadmin' } }));
 const Settings = mongoose.model('Settings', new mongoose.Schema({ kpay: { type: String, default: '09450000000' }, wave: { type: String, default: '09450000000' }, winRate: { type: Number, default: 42 } }));
 
@@ -153,7 +154,6 @@ io.on('connection', async (socket) => {
 
         await u.save();
         
-        // 🚨 ဤနေရာတွင် မှတ်တမ်း (BetHistory) အသစ် သိမ်းမည့် Code ပြန်ထည့်ထားပါသည် 🚨
         await BetHistory.create({ phone: u.phone, betType: data.type, amount: betAmount, result: status, payout: winAmount });
         
         socket.emit('soloResult', { dice: result, status, amountWon: winAmount, newBalance: u.balance });
@@ -233,14 +233,20 @@ app.get('/api/admin/dashboard', verifyAdmin, async (req, res) => {
   } catch(e) { res.status(500).json({error: 'Error'}); }
 });
 
+// 🚨 လုံးဝ အသစ်ပြင်ဆင်ထားသော Transactions ဆွဲယူသည့် API (မြန်နှုန်းမြှင့်တင်ထားသည်) 🚨
 app.get('/api/admin/transactions', verifyAdmin, async (req, res) => { 
   try { 
     const txs = await Transaction.aggregate([
       { $sort: { createdAt: -1 } },
-      { $limit: 10 },
+      { $limit: 200 }, 
       { $lookup: { from: 'users', localField: 'phone', foreignField: 'phone', as: 'userInfo' } },
       { $unwind: { path: '$userInfo', preserveNullAndEmptyArrays: true } },
-      { $project: { phone: 1, type: 1, amount: 1, status: 1, createdAt: 1, method: 1, accountPhone: 1, accountName: 1, screenshot: 1, username: '$userInfo.username' } }
+      { $project: { 
+          phone: 1, type: 1, amount: 1, status: 1, createdAt: 1, method: 1, accountPhone: 1, accountName: 1, 
+          username: '$userInfo.username',
+          screenshot: { $cond: { if: { $eq: ['$status', 'pending'] }, then: '$screenshot', else: '$$REMOVE' } }
+        } 
+      }
     ]);
     res.json(txs); 
   } catch (e) { res.status(500).json({ error: 'Error' }); }
@@ -250,7 +256,7 @@ app.post('/api/admin/transaction/action', verifyAdmin, async (req, res) => {
   const { transactionId, action } = req.body; 
   try { 
     const tx = await Transaction.findById(transactionId); 
-    if (!tx || tx.status !== 'pending') return res.status(50).json({ error: 'Transaction handles match error' }); 
+    if (!tx || tx.status !== 'pending') return res.status(500).json({ error: 'Transaction handles match error' }); 
     
     tx.status = action === 'approve' ? 'approved' : 'rejected'; 
     await tx.save(); 
