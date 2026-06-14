@@ -116,16 +116,16 @@ io.on('connection', async (socket) => {
           ceiling = base + allowedProfit;
         }
 
-        let probability = 0.42; 
+        let probability = 0.35; 
 
-        if (futureBalance >= ceiling) probability = 0.25; 
-        else if (futureBalance >= ceiling * 0.8) probability = 0.35; 
-        else if (futureBalance >= base * 1.5) probability = 0.44; 
+        if (futureBalance >= ceiling) probability = 0.20; 
+        else if (futureBalance >= ceiling * 0.8) probability = 0.30; 
+        else if (futureBalance >= base * 1.5) probability = 0.35; 
         else if (futureBalance >= base * 0.5) probability = 0.46; 
         else probability = 0.48; 
 
         if (data.type === 'equal') {
-          probability = 0.10; 
+          probability = 0.08; 
           if (futureBalance >= ceiling) probability = 0.02; 
           if (pStat.equalLosses >= pStat.equalPityTarget) { 
             probability = 1.0; 
