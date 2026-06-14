@@ -237,7 +237,7 @@ app.get('/api/admin/transactions', verifyAdmin, async (req, res) => {
   try { 
     const txs = await Transaction.aggregate([
       { $sort: { createdAt: -1 } },
-      { $limit: 300 },
+      { $limit: 100 },
       { $lookup: { from: 'users', localField: 'phone', foreignField: 'phone', as: 'userInfo' } },
       { $unwind: { path: '$userInfo', preserveNullAndEmptyArrays: true } },
       { $project: { phone: 1, type: 1, amount: 1, status: 1, createdAt: 1, method: 1, accountPhone: 1, accountName: 1, screenshot: 1, username: '$userInfo.username' } }
