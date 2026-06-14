@@ -125,16 +125,16 @@ io.on('connection', async (socket) => {
         else probability = 0.48; 
 
         if (data.type === 'equal') {
-          probability = 0.10; 
+          probability = 0.15; 
           if (futureBalance >= ceiling) probability = 0.02; 
           if (pStat.equalLosses >= pStat.equalPityTarget) { 
             probability = 1.0; 
-            if (futureBalance >= ceiling) probability = 0.16; 
+            if (futureBalance >= ceiling) probability = 0.18; 
           }
         } else {
           if (pStat.losses >= pStat.pityTarget) { 
-            probability = 1.0; 
-            if (futureBalance >= ceiling) probability = 0.27; 
+            probability = 1.3; 
+            if (futureBalance >= ceiling) probability = 0.30; 
           }
         }
 
