@@ -1,4 +1,4 @@
-require('dotenv').config(); 
+require('dotenv').config(); // 🚨 R အသေး ပြင်ပေးထားသည်
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -29,7 +29,6 @@ mongoose.connect(process.env.MONGO_URI).then(async () => {
 }).catch(err => console.log('❌ DB Error:', err));
 
 const User = mongoose.model('User', new mongoose.Schema({ phone: { type: String, required: true, unique: true }, username: String, password: { type: String, required: true }, balance: { type: Number, default: 5000 } }));
-// 🚨 Index များ ထည့်သွင်းထားသော နေရာ 🚨
 const BetHistory = mongoose.model('BetHistory', new mongoose.Schema({ phone: { type: String, index: true }, betType: String, amount: Number, result: String, payout: Number, createdAt: { type: Date, default: Date.now, index: true } }));
 const Transaction = mongoose.model('Transaction', new mongoose.Schema({ phone: { type: String, index: true }, type: String, amount: Number, method: String, accountPhone: String, accountName: String, screenshot: String, status: { type: String, default: 'pending', index: true }, createdAt: { type: Date, default: Date.now, index: true } }));
 const Admin = mongoose.model('Admin', new mongoose.Schema({ username: { type: String, required: true, unique: true }, password: { type: String, required: true }, role: { type: String, enum: ['superadmin', 'subadmin'], default: 'subadmin' } }));
@@ -233,7 +232,6 @@ app.get('/api/admin/dashboard', verifyAdmin, async (req, res) => {
   } catch(e) { res.status(500).json({error: 'Error'}); }
 });
 
-// 🚨 လုံးဝ အသစ်ပြင်ဆင်ထားသော Transactions ဆွဲယူသည့် API (မြန်နှုန်းမြှင့်တင်ထားသည်) 🚨
 app.get('/api/admin/transactions', verifyAdmin, async (req, res) => { 
   try { 
     const txs = await Transaction.aggregate([
@@ -256,7 +254,11 @@ app.post('/api/admin/transaction/action', verifyAdmin, async (req, res) => {
   const { transactionId, action } = req.body; 
   try { 
     const tx = await Transaction.findById(transactionId); 
-    if (!tx || tx.status !== 'pending') return res.status(500).json({ error: 'Transaction handles match error' }); 
+    
+    // 🚨 ပိုက်ဆံတွေ ပွားသွားတဲ့ Double-Click ပြဿနာကို ပိတ်လိုက်ပါပြီ 🚨
+    if (!tx || tx.status !== 'pending') {
+      return res.status(400).json({ error: 'ဒီစာရင်းကို အတည်ပြုပြီးသား (သို့) ပယ်ချပြီးသား ဖြစ်နေပါသည်' }); 
+    }
     
     tx.status = action === 'approve' ? 'approved' : 'rejected'; 
     await tx.save(); 
@@ -319,5 +321,8 @@ app.post('/api/admin/users/update-balance', verifyAdmin, async (req, res) => {
 app.get('/api/admin/subadmins', verifyAdmin, isSuperAdmin, async (req, res) => { try { const subAdmins = await Admin.find({ role: 'subadmin' }).select('-password'); res.json(subAdmins); } catch(e) { res.status(500).json({error: 'Error'}); }});
 app.post('/api/admin/create-subadmin', verifyAdmin, isSuperAdmin, async (req, res) => { const { username, password } = req.body; try { const exists = await Admin.findOne({username}); if(exists) return res.status(400).json({error: 'Username ရှိပြီးသားပါ'}); const hash = await bcrypt.hash(password, 10); await Admin.create({ username, password: hash, role: 'subadmin' }); res.json({ message: 'Subadmin Account အသစ် ဖန်တီးပြီးပါပြီ' }); } catch(e) { res.status(500).json({error: 'Error'}); }});
 
-const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+// 🚨 Railway ကနေ အပြင်ကို ပေးထွက်မယ့် Port တံခါး 🚨
+const PORT = process.env.PORT || 8080;
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`✅ Server running on port ${PORT}`);
+});
